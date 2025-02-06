@@ -1,6 +1,8 @@
 package app
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,6 +42,8 @@ type (
 		Dependencies        map[string]Dependency `json:"dependencies"`
 		ResolverType        ResolverType          `json:"-"`
 		PlainHttp           bool                  `json:"-"`
+		Checksum            string                `json:"-"`
+		Source              []byte                `json:"-"`
 	}
 
 	Resolver struct {
@@ -240,10 +244,10 @@ func (r *Resolver) Download(dependencies map[string]*Metadata) error {
 			var resolver DependencyResolver
 
 			if m.ResolverType == OCI {
-				logger.Info("Downloading %s as %+v proto: oci", u, m)
+				logger.Info("Downloading %s proto: oci", u)
 				resolver = r.ociResolver
 			} else {
-				logger.Info("Downloading %s as %+v proto: http", u, m)
+				logger.Info("Downloading %s proto: http", u)
 				resolver = r.httpResolver
 			}
 
@@ -269,13 +273,11 @@ func (r *Resolver) Download(dependencies map[string]*Metadata) error {
 			metaPath := filepath.Join(basePath, fmt.Sprintf("%s@%s.json", m.Name, m.Version))
 			archivePath := filepath.Join(basePath, fmt.Sprintf("%s@%s.zip", m.Name, m.Version))
 
-			metadataBytes, err := json.Marshal(m)
-
 			if err != nil {
 				return err
 			}
 
-			err = os.WriteFile(metaPath, metadataBytes, os.ModePerm)
+			err = os.WriteFile(metaPath, m.Source, os.ModePerm)
 
 			if err != nil {
 				return err
@@ -325,12 +327,17 @@ func (r *OciResolver) ResolveMetadata(uri string, plainHttp bool) (*Metadata, er
 		return nil, err
 	}
 
+	hasher := sha256.New()
+	hasher.Write(result.Metadata.Data)
+
 	var metadata *Metadata
 	if err := json.Unmarshal(result.Metadata.Data, &metadata); err != nil {
 		return nil, err
 	}
 
 	metadata.ResolverType = OCI
+	metadata.Source = result.Metadata.Data
+	metadata.Checksum = hex.EncodeToString(hasher.Sum(nil))
 
 	return metadata, nil
 }
@@ -376,6 +383,8 @@ func (r *HttpResolver) ResolveMetadata(uri string, plainHttp bool) (*Metadata, e
 		u.Scheme = "https"
 	}
 
+	// u.Path = u.Path + ".json"
+
 	resp, err := http.Get(u.String())
 
 	if err != nil {
@@ -389,6 +398,10 @@ func (r *HttpResolver) ResolveMetadata(uri string, plainHttp bool) (*Metadata, e
 
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
+
+	hasher := sha256.New()
+	hasher.Write(body)
+
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +413,9 @@ func (r *HttpResolver) ResolveMetadata(uri string, plainHttp bool) (*Metadata, e
 	}
 
 	metadata.ResolverType = HTTP
+	metadata.Source = body
 	metadata.PlainHttp = plainHttp
+	metadata.Checksum = hex.EncodeToString(hasher.Sum(nil))
 
 	return metadata, nil
 }
