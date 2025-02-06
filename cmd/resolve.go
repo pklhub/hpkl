@@ -141,7 +141,7 @@ func Resolve(appConfig *app.AppConfig) error {
 		resolvedDependency := pklutils.ResolvedDependency{
 			DependencyType: "remote",
 			Uri:            packageUri.String(),
-			Checksums:      map[string]string{"sha256": dep.PackageZipChecksums.Sha256},
+			Checksums:      map[string]string{"sha256": dep.Checksum},
 		}
 
 		projectDeps.ResolvedDependencies[mapUri] = &resolvedDependency
